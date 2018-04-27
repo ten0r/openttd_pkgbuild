@@ -1,6 +1,6 @@
-diff -r 4a794893a358 src/bridge_gui.cpp
---- a/src/bridge_gui.cpp	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/bridge_gui.cpp	Thu Feb 26 08:47:46 2015 +0100
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/bridge_gui.cpp
+--- a/src/bridge_gui.cpp	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/bridge_gui.cpp	Wed Apr 26 20:14:25 2017 +0200
 @@ -24,6 +24,7 @@
  #include "cmd_helper.h"
  #include "tunnelbridge_map.h"
@@ -9,19 +9,45 @@ diff -r 4a794893a358 src/bridge_gui.cpp
  
  #include "widgets/bridge_widget.h"
  
-@@ -72,6 +73,8 @@
- 		DiagDirection start_direction = ReverseDiagDir(GetTunnelBridgeDirection(p1));
- 		ConnectRoadToStructure(p1, start_direction);
+@@ -63,14 +64,15 @@
+ 	if (result.Failed()) return;
+ 	if (_settings_client.sound.confirm) SndPlayTileFx(SND_27_BLACKSMITH_ANVIL, end_tile);
+ 
+-	TransportType transport_type = Extract<TransportType, 15, 2>(p2);
++	switch (GB(p2, 15, 2)) {
++		case TRANSPORT_RAIL:
++			StoreRailPlacementEndpoints(p1, end_tile, (TileX(p1) == TileX(end_tile)) ? TRACK_Y : TRACK_X, false);
++			break;
+ 
+-	if (transport_type == TRANSPORT_ROAD) {
+-		DiagDirection end_direction = ReverseDiagDir(GetTunnelBridgeDirection(end_tile));
+-		ConnectRoadToStructure(end_tile, end_direction);
+-
+-		DiagDirection start_direction = ReverseDiagDir(GetTunnelBridgeDirection(p1));
+-		ConnectRoadToStructure(p1, start_direction);
++		case TRANSPORT_ROAD:
++			ConnectRoadToStructure(end_tile, ReverseDiagDir(GetTunnelBridgeDirection(end_tile)));
++			ConnectRoadToStructure(p1, ReverseDiagDir(GetTunnelBridgeDirection(p1)));
++			break;
  	}
-+
-+	StoreRailPlacementEndpoints(p1, end_tile, (TileX(p1) == TileX(end_tile)) ? TRACK_Y : TRACK_X, false);
  }
  
- /** Window class for handling the bridge-build GUI. */
-diff -r 4a794893a358 src/lang/english.txt
---- a/src/lang/english.txt	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/lang/english.txt	Thu Feb 26 08:47:46 2015 +0100
-@@ -2316,6 +2316,7 @@
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/command_type.h
+--- a/src/command_type.h	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/command_type.h	Wed Apr 26 20:14:25 2017 +0200
+@@ -363,7 +363,7 @@
+  *
+  * @param x The StringID to combine with a command-id
+  */
+-#define CMD_MSG(x) ((x) << 16)
++#define CMD_MSG(x) ((uint32)((x) << 16))
+ 
+ /**
+  * Defines some flags.
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/lang/english.txt
+--- a/src/lang/english.txt	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/lang/english.txt	Wed Apr 26 20:14:25 2017 +0200
+@@ -2312,6 +2312,7 @@
  
  STR_RAIL_TOOLBAR_TOOLTIP_BUILD_RAILROAD_TRACK                   :{BLACK}Build railway track. Ctrl toggles build/remove for railway construction. Shift toggles building/showing cost estimate
  STR_RAIL_TOOLBAR_TOOLTIP_BUILD_AUTORAIL                         :{BLACK}Build railway track using the Autorail mode. Ctrl toggles build/remove for railway construction. Shift toggles building/showing cost estimate
@@ -29,58 +55,60 @@ diff -r 4a794893a358 src/lang/english.txt
  STR_RAIL_TOOLBAR_TOOLTIP_BUILD_TRAIN_DEPOT_FOR_BUILDING         :{BLACK}Build train depot (for buying and servicing trains). Shift toggles building/showing cost estimate
  STR_RAIL_TOOLBAR_TOOLTIP_CONVERT_RAIL_TO_WAYPOINT               :{BLACK}Convert rail to waypoint. Ctrl enables joining waypoints. Shift toggles building/showing cost estimate
  STR_RAIL_TOOLBAR_TOOLTIP_BUILD_RAILROAD_STATION                 :{BLACK}Build railway station. Ctrl enables joining stations. Shift toggles building/showing cost estimate
-diff -r 4a794893a358 src/misc.cpp
---- a/src/misc.cpp	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/misc.cpp	Thu Feb 26 08:47:46 2015 +0100
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/misc.cpp
+--- a/src/misc.cpp	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/misc.cpp	Wed Apr 26 20:14:25 2017 +0200
 @@ -110,6 +110,7 @@
  	InitializeEconomy();
  
  	ResetObjectToPlace();
-+	ResetRailPlacementSnapping();
++	ResetRailSnapping();
  
  	GamelogReset();
  	GamelogStartAction(GLAT_START);
-diff -r 4a794893a358 src/rail_cmd.cpp
---- a/src/rail_cmd.cpp	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/rail_cmd.cpp	Thu Feb 26 08:47:46 2015 +0100
-@@ -44,6 +44,7 @@
- typedef SmallVector<Train *, 16> TrainList;
- 
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/rail_cmd.cpp
+--- a/src/rail_cmd.cpp	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/rail_cmd.cpp	Wed Apr 26 20:14:25 2017 +0200
+@@ -46,6 +46,8 @@
  RailtypeInfo _railtypes[RAILTYPE_END];
-+TileIndex _rail_track_endtile; ///< The end of a rail track; as hidden return from the rail build/remove command for GUI purposes.
  RailType _sorted_railtypes[RAILTYPE_END];
  uint8 _sorted_railtypes_size;
++TileIndex _rail_track_endtile;     ///< The end of a rail track; as hidden return from the rail build/remove command for GUI purposes. After command failure contains garbage.
++TileIndex _rail_overbuilt_endtile; ///< Tile where last consecutive rail track was overbuilt; hidden return from the rail build/remove command for GUI purposes. Availabe also after command failure.
  
-@@ -416,6 +417,8 @@
+ /** Enum holding the signal offset in the sprite sheet according to the side it is representing. */
+ enum SignalOffsets {
+@@ -445,6 +447,9 @@
  	Track track = Extract<Track, 0, 3>(p2);
  	CommandCost cost(EXPENSES_CONSTRUCTION);
  
 +	_rail_track_endtile = INVALID_TILE;
++	_rail_overbuilt_endtile = INVALID_TILE;
 +
  	if (!ValParamRailtype(railtype) || !ValParamTrackOrientation(track)) return CMD_ERROR;
  
  	Slope tileh = GetTileSlope(tile);
-@@ -432,7 +435,10 @@
+@@ -461,7 +466,10 @@
  
  			ret = CheckTrackCombination(tile, trackbit, flags);
  			if (ret.Succeeded()) ret = EnsureNoTrainOnTrack(tile, track);
 -			if (ret.Failed()) return ret;
 +			if (ret.Failed()) {
-+				if (ret.GetErrorMessage() == STR_ERROR_ALREADY_BUILT) _rail_track_endtile = tile;
++				if (ret.GetErrorMessage() == STR_ERROR_ALREADY_BUILT) _rail_overbuilt_endtile = tile;
 +				return ret;
 +			}
  
  			ret = CheckRailSlope(tileh, trackbit, GetTrackBits(tile), tile);
  			if (ret.Failed()) return ret;
-@@ -521,6 +527,7 @@
+@@ -552,6 +560,7 @@
  			}
  
  			if (IsLevelCrossing(tile) && GetCrossingRailBits(tile) == trackbit) {
-+				_rail_track_endtile = tile;
++				_rail_overbuilt_endtile = tile;
  				return_cmd_error(STR_ERROR_ALREADY_BUILT);
  			}
  			/* FALL THROUGH */
-@@ -560,6 +567,7 @@
+@@ -591,6 +600,7 @@
  	}
  
  	cost.AddCost(RailBuildCost(railtype));
@@ -88,16 +116,17 @@ diff -r 4a794893a358 src/rail_cmd.cpp
  	return cost;
  }
  
-@@ -578,6 +586,8 @@
+@@ -609,6 +619,9 @@
  	CommandCost cost(EXPENSES_CONSTRUCTION);
  	bool crossing = false;
  
 +	_rail_track_endtile = INVALID_TILE;
++	_rail_overbuilt_endtile = INVALID_TILE;
 +
  	if (!ValParamTrackOrientation(track)) return CMD_ERROR;
  	TrackBits trackbit = TrackToTrackBits(track);
  
-@@ -704,6 +714,7 @@
+@@ -735,6 +748,7 @@
  		if (v != NULL) TryPathReserve(v, true);
  	}
  
@@ -105,47 +134,63 @@ diff -r 4a794893a358 src/rail_cmd.cpp
  	return cost;
  }
  
-@@ -837,6 +848,8 @@
+@@ -868,6 +882,9 @@
  	bool remove = HasBit(p2, 7);
  	RailType railtype = Extract<RailType, 0, 4>(p2);
  
 +	_rail_track_endtile = INVALID_TILE;
++	_rail_overbuilt_endtile = INVALID_TILE;
 +
  	if ((!remove && !ValParamRailtype(railtype)) || !ValParamTrackOrientation(track)) return CMD_ERROR;
  	if (p1 >= MapSize()) return CMD_ERROR;
  	TileIndex end_tile = p1;
-@@ -848,10 +861,12 @@
+@@ -878,16 +895,23 @@
+ 
  	bool had_success = false;
  	CommandCost last_error = CMD_ERROR;
++	bool overbuilding = true;
  	for (;;) {
-+		TileIndex last_endtile = _rail_track_endtile;
++		TileIndex old_endtile = _rail_track_endtile;
++		TileIndex old_overbuilt = _rail_overbuilt_endtile;
  		CommandCost ret = DoCommand(tile, remove ? 0 : railtype, TrackdirToTrack(trackdir), flags, remove ? CMD_REMOVE_SINGLE_RAIL : CMD_BUILD_SINGLE_RAIL);
  
++		bool already_built = (ret.GetErrorMessage() == STR_ERROR_ALREADY_BUILT);
++		if (ret.Failed()) _rail_track_endtile = already_built ? _rail_overbuilt_endtile : old_endtile;
++		overbuilding &= already_built;
++		if (!overbuilding) _rail_overbuilt_endtile = old_overbuilt;
++
  		if (ret.Failed()) {
  			last_error = ret;
-+			if (_rail_track_endtile == INVALID_TILE) _rail_track_endtile = last_endtile;
- 			if (last_error.GetErrorMessage() != STR_ERROR_ALREADY_BUILT && !remove) {
+-			if (last_error.GetErrorMessage() != STR_ERROR_ALREADY_BUILT && !remove) {
++			if (!already_built && !remove) {
  				if (HasBit(p2, 8)) return last_error;
  				break;
-diff -r 4a794893a358 src/rail_gui.cpp
---- a/src/rail_gui.cpp	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/rail_gui.cpp	Thu Feb 26 08:47:46 2015 +0100
-@@ -52,9 +52,14 @@
+ 			}
+-
+ 			/* Ownership errors are more important. */
+ 			if (last_error.GetErrorMessage() == STR_ERROR_OWNED_BY && remove) break;
+ 		} else {
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/rail_gui.cpp
+--- a/src/rail_gui.cpp	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/rail_gui.cpp	Wed Apr 26 20:14:25 2017 +0200
+@@ -52,9 +52,16 @@
  static SignalVariant _cur_signal_variant;    ///< set the signal variant (for signal GUI)
  static SignalType _cur_signal_type;          ///< set the signal type (for signal GUI)
  
-+extern TileIndex _rail_track_endtile; // rail_cmd.cpp
++/* rail_cmd.cpp */
++extern TileIndex _rail_track_endtile;
++extern TileIndex _rail_overbuilt_endtile;
 +
  /* Map the setting: default_signal_type to the corresponding signal type */
  static const SignalType _default_signal_type[] = {SIGTYPE_NORMAL, SIGTYPE_PBS, SIGTYPE_PBS_ONEWAY};
  
-+static const int HOTKEY_POLYRAIL     = 0x1000;
-+static const int HOTKEY_NEW_POLYRAIL = 0x1001;
++static const int HOTKEY_POLYRAIL     = 0x1000; ///< Open/close polyline rail tool. Sentinel to distinguish between button clicking and hotkey pressing.
++static const int HOTKEY_NEW_POLYRAIL = 0x1001; ///< Open/close polyline rail tool (new line). Sentinel to distinguish between button clicking and hotkey pressing.
 +
  struct RailStationGUISettings {
  	Axis orientation;                 ///< Currently selected rail station orientation
  
-@@ -91,13 +96,20 @@
+@@ -91,13 +98,20 @@
  	if (result.Succeeded() && _settings_client.sound.confirm) SndPlayTileFx(SND_20_SPLAT_RAIL, tile);
  }
  
@@ -156,23 +201,36 @@ diff -r 4a794893a358 src/rail_gui.cpp
 -			_remove_button_clicked ?
 -			CMD_REMOVE_SINGLE_RAIL | CMD_MSG(STR_ERROR_CAN_T_REMOVE_RAILROAD_TRACK) :
 -			CMD_BUILD_SINGLE_RAIL | CMD_MSG(STR_ERROR_CAN_T_BUILD_RAILROAD_TRACK),
--			CcPlaySound1E);
+-			CcPlaySound_SPLAT_RAIL);
 +	CommandContainer ret = {
-+		tile,          // tile
-+		_cur_railtype, // p1
-+		track,         // p2
++		tile,                   // tile
++		_cur_railtype,          // p1
++		track,                  // p2
 +		_remove_button_clicked ?
 +				CMD_REMOVE_SINGLE_RAIL | CMD_MSG(STR_ERROR_CAN_T_REMOVE_RAILROAD_TRACK) :
 +				CMD_BUILD_SINGLE_RAIL | CMD_MSG(STR_ERROR_CAN_T_BUILD_RAILROAD_TRACK), // cmd
-+		CcPlaySound1E, // callback
-+		""             // text
++		CcPlaySound_SPLAT_RAIL, // callback
++		""                      // text
 +	};
 +
 +	return ret;
  }
  
  /**
-@@ -276,6 +288,7 @@
+@@ -177,6 +191,12 @@
+ 	if (_settings_client.sound.confirm) SndPlayTileFx(SND_20_SPLAT_RAIL, tile);
+ 	/* Only close the station builder window if the default station and non persistent building is chosen. */
+ 	if (_railstation.station_class == STAT_CLASS_DFLT && _railstation.station_type == 0 && !_settings_client.gui.persistent_buildingtools) ResetObjectToPlace();
++
++	uint w = GB(p1, 8, 8);
++	uint h = GB(p1, 16, 8);
++	Axis axis = (Axis)GB(p1, 4, 1);
++	if (axis == AXIS_X) Swap(w, h);
++	StoreRailStationPlacementEndpoints(TileArea(tile, w, h), axis);
+ }
+ 
+ /**
+@@ -277,6 +297,7 @@
  	if (result.Succeeded()) {
  		if (_settings_client.sound.confirm) SndPlayTileFx(SND_20_SPLAT_RAIL, tile);
  		if (!_settings_client.gui.persistent_buildingtools) ResetObjectToPlace();
@@ -180,7 +238,7 @@ diff -r 4a794893a358 src/rail_gui.cpp
  	} else {
  		SetRedErrorSquare(_build_tunnel_endtile);
  	}
-@@ -305,7 +318,7 @@
+@@ -306,7 +327,7 @@
  
  	/* allow ctrl to switch remove mode only for these widgets */
  	for (uint i = WID_RAT_BUILD_NS; i <= WID_RAT_BUILD_STATION; i++) {
@@ -189,7 +247,7 @@ diff -r 4a794893a358 src/rail_gui.cpp
  			ToggleRailButton_Remove(w);
  			return true;
  		}
-@@ -349,25 +362,45 @@
+@@ -350,25 +371,48 @@
  	}
  }
  
@@ -200,16 +258,16 @@ diff -r 4a794893a358 src/rail_gui.cpp
 -			_remove_button_clicked ?
 -			CMD_REMOVE_RAILROAD_TRACK | CMD_MSG(STR_ERROR_CAN_T_REMOVE_RAILROAD_TRACK) :
 -			CMD_BUILD_RAILROAD_TRACK  | CMD_MSG(STR_ERROR_CAN_T_BUILD_RAILROAD_TRACK),
--			CcPlaySound1E);
+-			CcPlaySound_SPLAT_RAIL);
 +	CommandContainer ret = {
-+		start_tile,                   // tile
-+		end_tile,                     // p1
-+		_cur_railtype | (track << 4), // p2
++		start_tile,                             // tile
++		end_tile,                               // p1
++		(uint32)(_cur_railtype | (track << 4)), // p2
 +		_remove_button_clicked ?
 +				CMD_REMOVE_RAILROAD_TRACK | CMD_MSG(STR_ERROR_CAN_T_REMOVE_RAILROAD_TRACK) :
 +				CMD_BUILD_RAILROAD_TRACK  | CMD_MSG(STR_ERROR_CAN_T_BUILD_RAILROAD_TRACK), // cmd
-+		CcPlaySound1E,                // callback
-+		""                            // text
++		CcPlaySound_SPLAT_RAIL,                 // callback
++		""                                      // text
 +	};
 +
 +	return ret;
@@ -229,24 +287,27 @@ diff -r 4a794893a358 src/rail_gui.cpp
 +			GenericPlaceRailCmd(end_tile, track) : // one tile case
 +			DoRailroadTrackCmd(start_tile, end_tile, track); // multitile selection
 +
-+	/* When overbuilding existing tracks in polyline mode we just want to move the
-+	 * snap point without altering the user with the "already built" error. Don't
-+	 * execute the command right away, firstly check if tracks are being overbuilt. */
-+	if (!(_thd.place_mode & HT_POLY) || _shift_pressed ||
-+			DoCommand(&cmd, DC_AUTO | DC_NO_WATER).GetErrorMessage() != STR_ERROR_ALREADY_BUILT) {
-+		/* place tracks */
-+		if (!DoCommandP(&cmd)) return;
++	/* When overbuilding existing tracks in polyline mode we want to move the
++	 * snap point over the last overbuilt track piece. In such case we don't
++	 * want to show any errors to the user. Don't execute the command right
++	 * away, first check if overbuilding. */
++	bool success;
++	if (_shift_pressed || !(_thd.place_mode & HT_POLY) || // skip testing when using shift or not in polyline
++			(success = DoCommand(&cmd, DC_AUTO | DC_NO_WATER).Succeeded(), success) || // test the command, execute if succeeded
++			_rail_overbuilt_endtile == INVALID_TILE) { // if the command failed, don't execute it (don't show the error) if there were overbuit tracks
++		/* Execute. */
++		success = DoCommandP(&cmd);
  	}
  
 -	DoRailroadTrack(trackstat);
-+	/* save new snap points for the polyline tool */
-+	if (!_shift_pressed && _rail_track_endtile != INVALID_TILE) {
-+		StoreRailPlacementEndpoints(start_tile, _rail_track_endtile, track, true);
++	/* Save new snap points for the polyline tool, extend the snapping over overbuilt track pieces. */
++	if (!_shift_pressed && (success || ((_thd.place_mode & HT_POLY) && _rail_overbuilt_endtile != INVALID_TILE))) {
++		StoreRailPlacementEndpoints(start_tile, success ? _rail_track_endtile : _rail_overbuilt_endtile, track, true);
 +	}
  }
  
  /**
-@@ -449,6 +482,7 @@
+@@ -462,6 +506,7 @@
  		this->GetWidget<NWidgetCore>(WID_RAT_BUILD_EW)->widget_data     = rti->gui_sprites.build_ew_rail;
  		this->GetWidget<NWidgetCore>(WID_RAT_BUILD_Y)->widget_data      = rti->gui_sprites.build_y_rail;
  		this->GetWidget<NWidgetCore>(WID_RAT_AUTORAIL)->widget_data     = rti->gui_sprites.auto_rail;
@@ -254,7 +315,7 @@ diff -r 4a794893a358 src/rail_gui.cpp
  		this->GetWidget<NWidgetCore>(WID_RAT_BUILD_DEPOT)->widget_data  = rti->gui_sprites.build_depot;
  		this->GetWidget<NWidgetCore>(WID_RAT_CONVERT_RAIL)->widget_data = rti->gui_sprites.convert_rail;
  		this->GetWidget<NWidgetCore>(WID_RAT_BUILD_TUNNEL)->widget_data = rti->gui_sprites.build_tunnel;
-@@ -477,6 +511,7 @@
+@@ -490,6 +535,7 @@
  			case WID_RAT_BUILD_EW:
  			case WID_RAT_BUILD_Y:
  			case WID_RAT_AUTORAIL:
@@ -262,7 +323,7 @@ diff -r 4a794893a358 src/rail_gui.cpp
  			case WID_RAT_BUILD_WAYPOINT:
  			case WID_RAT_BUILD_STATION:
  			case WID_RAT_BUILD_SIGNALS:
-@@ -508,6 +543,15 @@
+@@ -521,6 +567,15 @@
  		}
  	}
  
@@ -278,12 +339,12 @@ diff -r 4a794893a358 src/rail_gui.cpp
  	virtual void OnClick(Point pt, int widget, int click_count)
  	{
  		if (widget < WID_RAT_BUILD_NS) return;
-@@ -539,6 +583,40 @@
+@@ -552,6 +607,38 @@
  				this->last_user_action = widget;
  				break;
  
 +			case WID_RAT_POLYRAIL: {
-+				bool was_snap = CurrentlySnappingRailPlacement();
++				bool was_snap = RailSnapping();
 +				bool was_open = this->IsWidgetLowered(WID_RAT_POLYRAIL);
 +				bool do_snap;
 +				bool do_open;
@@ -304,22 +365,20 @@ diff -r 4a794893a358 src/rail_gui.cpp
 +					do_snap = false;
 +					do_open = !was_open;
 +				}
-+				/* close the tool explicitly so it can be re-opened in different snapping mode */
-+				if (was_open) ResetObjectToPlace();
-+				/* open the tool in desired mode */
-+				if (do_open && HandlePlacePushButton(this, WID_RAT_POLYRAIL, GetRailTypeInfo(railtype)->cursor.autorail, do_snap ? (HT_RAIL | HT_POLY) : (HT_RAIL | HT_NEW_POLY))) {
-+					/* if we are re-opening the tool but we couldn't switch the snapping
-+					 * then close the tool instead of appearing to be doing nothing */
-+					if (was_open && do_snap != CurrentlySnappingRailPlacement()) ResetObjectToPlace();
-+				}
++				/* close/open the tool */
++				if (was_open != do_open) HandlePlacePushButton(this, WID_RAT_POLYRAIL, GetRailTypeInfo(railtype)->cursor.autorail, HT_RAIL | HT_POLY);
++				/* set snapping mode */
++				if (do_open) SetRailSnapMode(do_snap);
++
 +				this->last_user_action = WID_RAT_POLYRAIL;
++				if (was_open == do_open) return; // prevent switching the "remove" button state
 +				break;
 +			}
 +
  			case WID_RAT_DEMOLISH:
  				HandlePlacePushButton(this, WID_RAT_DEMOLISH, ANIMCURSOR_DEMOLISH, HT_RECT | HT_DIAGONAL);
  				this->last_user_action = widget;
-@@ -603,7 +681,15 @@
+@@ -616,7 +703,15 @@
  	virtual EventState OnHotkey(int hotkey)
  	{
  		MarkTileDirtyByTile(TileVirtXY(_thd.pos.x, _thd.pos.y)); // redraw tile selection
@@ -336,7 +395,7 @@ diff -r 4a794893a358 src/rail_gui.cpp
  	}
  
  	virtual void OnPlaceObject(Point pt, TileIndex tile)
-@@ -626,6 +712,7 @@
+@@ -639,6 +734,7 @@
  				break;
  
  			case WID_RAT_AUTORAIL:
@@ -344,7 +403,7 @@ diff -r 4a794893a358 src/rail_gui.cpp
  				VpStartPlaceSizing(tile, VPM_RAILDIRS, DDSP_PLACE_RAIL);
  				break;
  
-@@ -773,6 +860,8 @@
+@@ -786,6 +882,8 @@
  }
  
  const uint16 _railtoolbar_autorail_keys[] = {'5', 'A' | WKC_GLOBAL_HOTKEY, 0};
@@ -353,7 +412,7 @@ diff -r 4a794893a358 src/rail_gui.cpp
  
  static Hotkey railtoolbar_hotkeys[] = {
  	Hotkey('1', "build_ns", WID_RAT_BUILD_NS),
-@@ -780,6 +869,8 @@
+@@ -793,6 +891,8 @@
  	Hotkey('3', "build_ew", WID_RAT_BUILD_EW),
  	Hotkey('4', "build_y", WID_RAT_BUILD_Y),
  	Hotkey(_railtoolbar_autorail_keys, "autorail", WID_RAT_AUTORAIL),
@@ -362,7 +421,7 @@ diff -r 4a794893a358 src/rail_gui.cpp
  	Hotkey('6', "demolish", WID_RAT_DEMOLISH),
  	Hotkey('7', "depot", WID_RAT_BUILD_DEPOT),
  	Hotkey('8', "waypoint", WID_RAT_BUILD_WAYPOINT),
-@@ -810,6 +901,8 @@
+@@ -823,6 +923,8 @@
  						SetFill(0, 1), SetMinimalSize(22, 22), SetDataTip(SPR_IMG_RAIL_NW, STR_RAIL_TOOLBAR_TOOLTIP_BUILD_RAILROAD_TRACK),
  		NWidget(WWT_IMGBTN, COLOUR_DARK_GREEN, WID_RAT_AUTORAIL),
  						SetFill(0, 1), SetMinimalSize(22, 22), SetDataTip(SPR_IMG_AUTORAIL, STR_RAIL_TOOLBAR_TOOLTIP_BUILD_AUTORAIL),
@@ -371,9 +430,9 @@ diff -r 4a794893a358 src/rail_gui.cpp
  
  		NWidget(WWT_PANEL, COLOUR_DARK_GREEN), SetMinimalSize(4, 22), SetDataTip(0x0, STR_NULL), EndContainer(),
  
-diff -r 4a794893a358 src/script/api/game/game_window.hpp.sq
---- a/src/script/api/game/game_window.hpp.sq	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/script/api/game/game_window.hpp.sq	Thu Feb 26 08:47:46 2015 +0100
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/script/api/game/game_window.hpp.sq
+--- a/src/script/api/game/game_window.hpp.sq	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/script/api/game/game_window.hpp.sq	Wed Apr 26 20:14:25 2017 +0200
 @@ -904,6 +904,7 @@
  	SQGSWindow.DefSQConst(engine, ScriptWindow::WID_RAT_BUILD_EW,                          "WID_RAT_BUILD_EW");
  	SQGSWindow.DefSQConst(engine, ScriptWindow::WID_RAT_BUILD_Y,                           "WID_RAT_BUILD_Y");
@@ -382,9 +441,9 @@ diff -r 4a794893a358 src/script/api/game/game_window.hpp.sq
  	SQGSWindow.DefSQConst(engine, ScriptWindow::WID_RAT_DEMOLISH,                          "WID_RAT_DEMOLISH");
  	SQGSWindow.DefSQConst(engine, ScriptWindow::WID_RAT_BUILD_DEPOT,                       "WID_RAT_BUILD_DEPOT");
  	SQGSWindow.DefSQConst(engine, ScriptWindow::WID_RAT_BUILD_WAYPOINT,                    "WID_RAT_BUILD_WAYPOINT");
-diff -r 4a794893a358 src/script/api/script_window.hpp
---- a/src/script/api/script_window.hpp	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/script/api/script_window.hpp	Thu Feb 26 08:47:46 2015 +0100
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/script/api/script_window.hpp
+--- a/src/script/api/script_window.hpp	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/script/api/script_window.hpp	Wed Apr 26 20:14:25 2017 +0200
 @@ -1982,6 +1982,7 @@
  		WID_RAT_BUILD_EW                             = ::WID_RAT_BUILD_EW,                             ///< Build rail along the game view X axis.
  		WID_RAT_BUILD_Y                              = ::WID_RAT_BUILD_Y,                              ///< Build rail along the game grid Y axis.
@@ -393,41 +452,52 @@ diff -r 4a794893a358 src/script/api/script_window.hpp
  		WID_RAT_DEMOLISH                             = ::WID_RAT_DEMOLISH,                             ///< Destroy something with dynamite!
  		WID_RAT_BUILD_DEPOT                          = ::WID_RAT_BUILD_DEPOT,                          ///< Build a depot.
  		WID_RAT_BUILD_WAYPOINT                       = ::WID_RAT_BUILD_WAYPOINT,                       ///< Build a waypoint.
-diff -r 4a794893a358 src/tilehighlight_func.h
---- a/src/tilehighlight_func.h	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/tilehighlight_func.h	Thu Feb 26 08:47:46 2015 +0100
-@@ -14,6 +14,7 @@
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/tilehighlight_func.h
+--- a/src/tilehighlight_func.h	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/tilehighlight_func.h	Wed Apr 26 20:14:25 2017 +0200
+@@ -13,7 +13,9 @@
+ #define TILEHIGHLIGHT_FUNC_H
  
  #include "gfx_type.h"
++#include "tilearea_type.h"
  #include "tilehighlight_type.h"
 +#include "track_type.h"
  
  void PlaceProc_DemolishArea(TileIndex tile);
  bool GUIPlaceProcDragXY(ViewportDragDropSelectionProcess proc, TileIndex start_tile, TileIndex end_tile);
-@@ -30,6 +31,10 @@
+@@ -30,6 +32,12 @@
  
  void UpdateTileSelection();
  
 +void StoreRailPlacementEndpoints(TileIndex start_tile, TileIndex end_tile, Track start_track, bool bidirectional = true);
-+void ResetRailPlacementSnapping();
-+bool CurrentlySnappingRailPlacement();
++void StoreRailStationPlacementEndpoints(const TileArea &ta, Axis station_axis);
++void SetRailSnapMode(bool snapping);
++bool RailSnapping();
++void ResetRailSnapping();
 +
  extern TileHighlightData _thd;
  
  #endif /* TILEHIGHLIGHT_FUNC_H */
-diff -r 4a794893a358 src/tilehighlight_type.h
---- a/src/tilehighlight_type.h	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/tilehighlight_type.h	Thu Feb 26 08:47:46 2015 +0100
-@@ -28,6 +28,8 @@
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/tilehighlight_type.h
+--- a/src/tilehighlight_type.h	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/tilehighlight_type.h	Wed Apr 26 20:14:25 2017 +0200
+@@ -28,6 +28,7 @@
  	HT_RAIL      = 0x080, ///< autorail (one piece), lower bits: direction
  	HT_VEHICLE   = 0x100, ///< vehicle is accepted as target as well (bitmask)
  	HT_DIAGONAL  = 0x200, ///< Also allow 'diagonal rectangles'. Only usable in combination with #HT_RECT or #HT_POINT.
 +	HT_POLY      = 0x400, ///< polyline mode; connect highlighted track with previous one
-+	HT_NEW_POLY  = 0xC00, ///< start completly new polyline; implies #HT_POLY
  	HT_DRAG_MASK = 0x0F8, ///< Mask for the tile drag-type modes.
  
  	/* lower bits (used with HT_LINE and HT_RAIL):
-@@ -54,11 +56,15 @@
+@@ -43,7 +44,6 @@
+ };
+ DECLARE_ENUM_AS_BIT_SET(HighLightStyle)
+ 
+-
+ /** Metadata about the current highlighting. */
+ struct TileHighlightData {
+ 	Point pos;           ///< Location, in tile "units", of the northern tile of the selected area.
+@@ -54,11 +54,15 @@
  
  	Point new_pos;       ///< New value for \a pos; used to determine whether to redraw the selection.
  	Point new_size;      ///< New value for \a size; used to determine whether to redraw the selection.
@@ -443,10 +513,10 @@ diff -r 4a794893a358 src/tilehighlight_type.h
  	byte sizelimit;      ///< Whether the selection is limited in length, and what the maximum length is.
  
  	HighLightStyle drawstyle;      ///< Lower bits 0-3 are reserved for detailed highlight information.
-diff -r 4a794893a358 src/viewport.cpp
---- a/src/viewport.cpp	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/viewport.cpp	Thu Feb 26 08:47:46 2015 +0100
-@@ -69,6 +69,8 @@
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/viewport.cpp
+--- a/src/viewport.cpp	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/viewport.cpp	Wed Apr 26 20:14:25 2017 +0200
+@@ -63,6 +63,8 @@
   */
  
  #include "stdafx.h"
@@ -455,16 +525,19 @@ diff -r 4a794893a358 src/viewport.cpp
  #include "landscape.h"
  #include "viewport_func.h"
  #include "station_base.h"
-@@ -149,6 +151,34 @@
+@@ -83,7 +85,7 @@
+ #include "window_gui.h"
+ #include "linkgraph/linkgraph_gui.h"
+ #include "viewport_sprite_sorter.h"
+-#include "bridge_map.h"
++#include "tunnelbridge_map.h"
+ 
+ #include <map>
+ 
+@@ -149,6 +151,26 @@
  typedef SmallVector<ParentSpriteToDraw, 64> ParentSpriteToDrawVector;
  typedef SmallVector<ChildScreenSpriteToDraw, 16> ChildScreenSpriteToDrawVector;
  
-+enum RailSnapMode {
-+	RSM_NO_SNAP,
-+	RSM_SNAP_TO_TILE,
-+	RSM_SNAP_TO_RAIL,
-+};
-+
 +/**
 + * Snapping point for a track.
 + *
@@ -475,8 +548,6 @@ diff -r 4a794893a358 src/viewport.cpp
 +struct LineSnapPoint : Point {
 +	uint8 dirs; ///< Allowed line directions, set of #Direction bits.
 +};
-+
-+typedef SmallVector<LineSnapPoint, 4> LineSnapPoints; ///< Set of snapping points
 +
 +/** Coordinates of a polyline track made of 2 connected line segments. */
 +struct Polyline {
@@ -490,24 +561,26 @@ diff -r 4a794893a358 src/viewport.cpp
  /** Data structure storing rendering information */
  struct ViewportDrawer {
  	DrawPixelInfo dpi;
-@@ -180,6 +210,16 @@
+@@ -170,6 +192,7 @@
+ };
+ 
+ static void MarkViewportDirty(const ViewPort *vp, int left, int top, int right, int bottom);
++static void GetRailSnapPointsFromTile(TileIndex tile, LineSnapPoint ret[DIAGDIR_END]);
+ 
+ static ViewportDrawer _vd;
+ 
+@@ -180,6 +203,10 @@
  uint _dirty_block_colour = 0;
  static VpSpriteSorter _vp_sprite_sorter = NULL;
  
-+static RailSnapMode _rail_snap_mode = RSM_NO_SNAP; ///< Type of rail track snapping (polyline tool).
-+static LineSnapPoints _tile_snap_points; ///< Tile to which a rail track will be snapped to (polyline tool).
-+static LineSnapPoints _rail_snap_points; ///< Set of points where a rail track will be snapped to (polyline tool).
++static bool _rail_snapping = false;      ///< Type of rail track snapping when highlighting.
++static SmallVector<LineSnapPoint, 4> _rail_snap_points; ///< Set of points where a rail track will be snapped to (polyline tool).
 +static LineSnapPoint _current_snap_lock; ///< Start point and direction at which selected track is locked on currently (while dragging in polyline mode).
-+
-+static RailSnapMode GetRailSnapMode();
-+static void SetRailSnapMode(RailSnapMode mode);
-+static TileIndex GetRailSnapTile();
-+static void SetRailSnapTile(TileIndex tile);
 +
  static Point MapXYZToViewport(const ViewPort *vp, int x, int y, int z)
  {
  	Point p = RemapCoords(x, y, z);
-@@ -806,13 +846,17 @@
+@@ -814,13 +841,17 @@
  }
  
  /**
@@ -527,7 +600,7 @@ diff -r 4a794893a358 src/viewport.cpp
  	int dist_a = (_thd.size.x + _thd.size.y);      // Rotated coordinate system for selected rectangle.
  	int dist_b = (_thd.size.x - _thd.size.y);      // We don't have to divide by 2. It's all relative!
  	int a = ((x - _thd.pos.x) + (y - _thd.pos.y)); // Rotated coordinate system for the point under scrutiny.
-@@ -929,53 +973,45 @@
+@@ -937,53 +968,45 @@
  	DrawSelectionSprite(sel, pal, ti, 7, FOUNDATION_PART_NORMAL);
  }
  
@@ -602,7 +675,7 @@ diff -r 4a794893a358 src/viewport.cpp
  		Corner halftile_corner = GetHalftileSlopeCorner(ti->tileh);
  		if (autorail_type != _lower_rail[halftile_corner]) {
  			foundation_part = FOUNDATION_PART_HALFTILE;
-@@ -984,16 +1020,17 @@
+@@ -992,16 +1015,17 @@
  		}
  	}
  
@@ -623,7 +696,7 @@ diff -r 4a794893a358 src/viewport.cpp
  }
  
  /**
-@@ -1006,66 +1043,61 @@
+@@ -1014,66 +1038,61 @@
  	bool is_redsq = _thd.redsq == ti->tile;
  	if (is_redsq) DrawTileSelectionRect(ti, PALETTE_TILE_RED_PULSATING);
  
@@ -741,7 +814,7 @@ diff -r 4a794893a358 src/viewport.cpp
  	}
  }
  
-@@ -2265,7 +2297,7 @@
+@@ -1943,7 +1962,7 @@
  		int x_start = _thd.pos.x;
  		int y_start = _thd.pos.y;
  
@@ -750,7 +823,7 @@ diff -r 4a794893a358 src/viewport.cpp
  			x_size  += _thd.outersize.x;
  			x_start += _thd.offs.x;
  			y_size  += _thd.outersize.y;
-@@ -2488,7 +2520,7 @@
+@@ -2166,7 +2185,7 @@
  }
  
  
@@ -759,7 +832,7 @@ diff -r 4a794893a358 src/viewport.cpp
  {
  	const Vehicle *v = CheckClickOnVehicle(vp, x, y);
  
-@@ -2498,6 +2530,18 @@
+@@ -2176,6 +2195,18 @@
  
  	/* Vehicle placement mode already handled above. */
  	if ((_thd.place_mode & HT_DRAG_MASK) != HT_NONE) {
@@ -769,7 +842,7 @@ diff -r 4a794893a358 src/viewport.cpp
 +			 * both lines (white and blue) will be constructed consecutively. */
 +			static bool stop_snap_on_double_click = false;
 +			if (double_click && stop_snap_on_double_click) {
-+				SetRailSnapMode(RSM_NO_SNAP);
++				SetRailSnapMode(false);
 +				return true;
 +			}
 +			stop_snap_on_double_click = !(_thd.drawstyle & HT_LINE) || (_thd.dir2 == HT_DIR_END);
@@ -778,7 +851,7 @@ diff -r 4a794893a358 src/viewport.cpp
  		PlaceObject();
  		return true;
  	}
-@@ -2624,8 +2668,8 @@
+@@ -2302,8 +2333,8 @@
  
  void SetTileSelectBigSize(int ox, int oy, int sx, int sy)
  {
@@ -789,13 +862,14 @@ diff -r 4a794893a358 src/viewport.cpp
  	_thd.new_outersize.x = sx * TILE_SIZE;
  	_thd.new_outersize.y = sy * TILE_SIZE;
  }
-@@ -2665,7 +2709,36 @@
+@@ -2343,7 +2374,37 @@
  	return FindWindowById(this->window_class, this->window_number);
  }
  
 -
 +static HighLightStyle CalcPolyrailDrawstyle(Point pt, bool dragging);
 +
++/** Update size of the area occupied by the blue part of rail track highlight (polyline mode). */
 +static inline void CalcNewPolylineOutersize()
 +{
 +	/* use the 'outersize' to mark the second (blue) part of a polyline selection */
@@ -827,62 +901,49 @@ diff -r 4a794893a358 src/viewport.cpp
  
  /**
   * Updates tile highlighting for all cases.
-@@ -2722,10 +2795,42 @@
+@@ -2400,9 +2461,31 @@
  					y1 += TILE_SIZE / 2;
  					break;
  				case HT_RAIL:
--					/* Draw one highlighted tile in any direction */
--					new_drawstyle = GetAutorailHT(pt.x, pt.y);
--					break;
- 				case HT_LINE:
-+					/* HT_POLY */
-+					if (_thd.place_mode & HT_POLY) {
-+						RailSnapMode snap_mode = GetRailSnapMode();
-+						if (snap_mode == RSM_NO_SNAP ||
-+								(snap_mode == RSM_SNAP_TO_TILE && GetRailSnapTile() == TileVirtXY(pt.x, pt.y))) {
-+							new_drawstyle = GetAutorailHT(pt.x, pt.y);
-+							_thd.new_offs.x = 0;
-+							_thd.new_offs.y = 0;
-+							_thd.new_outersize.x = 0;
-+							_thd.new_outersize.y = 0;
-+							_thd.dir2 = HT_DIR_END;
-+						} else {
-+							new_drawstyle = CalcPolyrailDrawstyle(pt, false);
-+							if (new_drawstyle != HT_NONE) {
-+								x1 = _thd.selstart.x & ~TILE_UNIT_MASK;
-+								y1 = _thd.selstart.y & ~TILE_UNIT_MASK;
-+								int x2 = _thd.selend.x & ~TILE_UNIT_MASK;
-+								int y2 = _thd.selend.y & ~TILE_UNIT_MASK;
-+								if (x1 > x2) Swap(x1, x2);
-+								if (y1 > y2) Swap(y1, y2);
-+								_thd.new_pos.x = x1;
-+								_thd.new_pos.y = y1;
-+								_thd.new_size.x = x2 - x1 + TILE_SIZE;
-+								_thd.new_size.y = y2 - y1 + TILE_SIZE;
-+							}
++					if ((_thd.place_mode & HT_POLY) && RailSnapping()) {
++						new_drawstyle = CalcPolyrailDrawstyle(pt, false);
++						if (new_drawstyle != HT_NONE) {
++							x1 = _thd.selstart.x & ~TILE_UNIT_MASK;
++							y1 = _thd.selstart.y & ~TILE_UNIT_MASK;
++							int x2 = _thd.selend.x & ~TILE_UNIT_MASK;
++							int y2 = _thd.selend.y & ~TILE_UNIT_MASK;
++							if (x1 > x2) Swap(x1, x2);
++							if (y1 > y2) Swap(y1, y2);
++							_thd.new_pos.x = x1;
++							_thd.new_pos.y = y1;
++							_thd.new_size.x = x2 - x1 + TILE_SIZE;
++							_thd.new_size.y = y2 - y1 + TILE_SIZE;
 +						}
 +						break;
 +					}
-+					/* HT_RAIL */
-+					if (_thd.place_mode & HT_RAIL) {
-+						/* Draw one highlighted tile in any direction */
-+						new_drawstyle = GetAutorailHT(pt.x, pt.y);
-+						break;
-+					}
-+					/* HT_LINE */
+ 					/* Draw one highlighted tile in any direction */
+ 					new_drawstyle = GetAutorailHT(pt.x, pt.y);
++					_thd.new_offs.x = 0;
++					_thd.new_offs.y = 0;
++					_thd.new_outersize.x = 0;
++					_thd.new_outersize.y = 0;
++					_thd.dir2 = HT_DIR_END;
+ 					break;
++
+ 				case HT_LINE:
  					switch (_thd.place_mode & HT_DIR_MASK) {
  						case HT_DIR_X: new_drawstyle = HT_LINE | HT_DIR_X; break;
- 						case HT_DIR_Y: new_drawstyle = HT_LINE | HT_DIR_Y; break;
-@@ -2744,6 +2849,8 @@
+@@ -2422,6 +2505,9 @@
  					}
  					_thd.selstart.x = x1 & ~TILE_UNIT_MASK;
  					_thd.selstart.y = y1 & ~TILE_UNIT_MASK;
 +					_thd.selend.x = x1;
 +					_thd.selend.y = y1;
++					_thd.dir2 = HT_DIR_END;
  					break;
  				default:
  					NOT_REACHED();
-@@ -2754,10 +2861,13 @@
+@@ -2432,10 +2518,13 @@
  		}
  	}
  
@@ -896,7 +957,7 @@ diff -r 4a794893a358 src/viewport.cpp
  			_thd.outersize.x != _thd.new_outersize.x ||
  			_thd.outersize.y != _thd.new_outersize.y ||
  			_thd.diagonal    != new_diagonal) {
-@@ -2767,6 +2877,7 @@
+@@ -2445,6 +2534,7 @@
  		_thd.drawstyle = new_drawstyle;
  		_thd.pos = _thd.new_pos;
  		_thd.size = _thd.new_size;
@@ -904,23 +965,27 @@ diff -r 4a794893a358 src/viewport.cpp
  		_thd.outersize = _thd.new_outersize;
  		_thd.diagonal = new_diagonal;
  		_thd.dirty = 0xff;
-@@ -2816,6 +2927,11 @@
+@@ -2494,6 +2584,7 @@
  	} else if (_thd.place_mode & (HT_RAIL | HT_LINE)) {
  		_thd.place_mode = HT_SPECIAL | others;
  		_thd.next_drawstyle = _thd.drawstyle | others;
 +		_current_snap_lock.x = -1;
-+		if ((_thd.place_mode & HT_POLY) != 0 && GetRailSnapMode() == RSM_NO_SNAP) {
-+			SetRailSnapMode(RSM_SNAP_TO_TILE);
-+			SetRailSnapTile(tile);
-+		}
  	} else {
  		_thd.place_mode = HT_SPECIAL | others;
  		_thd.next_drawstyle = HT_POINT | others;
-@@ -3007,7 +3123,31 @@
+@@ -2685,7 +2776,39 @@
  	return (int)(h1 - h0) * TILE_HEIGHT_STEP;
  }
  
 -static const StringID measure_strings_length[] = {STR_NULL, STR_MEASURE_LENGTH, STR_MEASURE_LENGTH_HEIGHTDIFF};
++/**
++ * Show a tooltip indicating the length of highlighted rail track.
++ * @param style                   Style of the highlight.
++ * @param start_tile              Tile where selection starts.
++ * @param end_tile                Tile where selection ends.
++ * @param close_cond              Close condition of the tooltip.
++ * @param show_single_tile_length Show a tooltip also when the length is 1 tile.
++ */
 +static void ShowLengthMeasurement(HighLightStyle style, TileIndex start_tile, TileIndex end_tile, TooltipCloseCondition close_cond = TCC_LEFT_CLICK, bool show_single_tile_length = false)
 +{
 +	static const StringID measure_strings_length[] = {STR_NULL, STR_MEASURE_LENGTH, STR_MEASURE_LENGTH_HEIGHTDIFF};
@@ -949,7 +1014,7 @@ diff -r 4a794893a358 src/viewport.cpp
  
  /**
   * Check for underflowing the map.
-@@ -3038,6 +3178,170 @@
+@@ -2716,6 +2839,198 @@
  	test = max;
  }
  
@@ -958,6 +1023,16 @@ diff -r 4a794893a358 src/viewport.cpp
 +static const uint HORZ_DIRS = (1 << DIR_W) | (1 << DIR_E);
 +static const uint VERT_DIRS = (1 << DIR_N) | (1 << DIR_S);
 +
++/**
++ * Convert a given point and a given #Direction to best matching #Trackdir.
++ *
++ * For example, #DIR_N will be converted to #TRACKDIR_LEFT_N if the point
++ * is on left tile half or #TRACKDIR_RIGHT_N if the point is on right half.
++ *
++ * @param pt  The point expressed in inner-tile world "units".
++ * @param dir The direction.
++ * @return The matching #Trackdir.
++ */
 +Trackdir PointDirToTrackdir(const Point &pt, Direction dir)
 +{
 +	Trackdir ret;
@@ -979,9 +1054,18 @@ diff -r 4a794893a358 src/viewport.cpp
 +	return ret;
 +}
 +
++/**
++ * Try to fit a pair of rail track lines (polyline) based on a given end point
++ * (mouse cursor position) and a given snap point (begin point).
++ *
++ * @param pt       The end point expressed in inner-tile world "units".
++ * @param start    The snap point, begin of the lines.
++ * @param[out] ret Coordinates of the lines (if found).
++ * @return Whether the lines were found.
++ */
 +static bool FindPolyline(const Point &pt, const LineSnapPoint &start, Polyline *ret)
 +{
-+	/* relative coordinats of the mouse point (offset against the snap point) */
++	/* relative coordinates of the mouse point (offset against the snap point) */
 +	int x = pt.x - start.x;
 +	int y = pt.y - start.y;
 +	int we = y - x;
@@ -998,7 +1082,7 @@ diff -r 4a794893a358 src/viewport.cpp
 +	uint d_ns = abs(RoundDivSU(ns, TILE_SIZE));
 +	uint d_we = abs(RoundDivSU(we, TILE_SIZE));
 +
-+	/* Find on which quadrant is the mouse point (reltively to the snap point).
++	/* Find on which quadrant is the mouse point (relatively to the snap point).
 +	 * Numeration (clockwise like in Direction):
 +	 * ortho            diag
 +	 *   \   2   /       2 | 3
@@ -1043,7 +1127,7 @@ diff -r 4a794893a358 src/viewport.cpp
 +		/* in the first place, choose this line whose first segment ends up closer
 +		 * to the mouse point (thus the second segment is shorter) */
 +		int cmp = ortho_len2 - diag_len2;
-+		/* if equeal, choose the shorter line */
++		/* if equal, choose the shorter line */
 +		if (cmp == 0) cmp = ortho_len - diag_len;
 +		/* finally look at small "units" and choose the line which is closer to the mouse point */
 +		if (cmp == 0) cmp = min(abs(we), abs(ns)) - min(abs(x), abs(y));
@@ -1085,6 +1169,15 @@ diff -r 4a794893a358 src/viewport.cpp
 +	return (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
 +}
 +
++/**
++ * Find best matching pair of lines (polyline).
++ *
++ * @param pt          The end point (mouse cursor position) expressed in inner-tile world "units".
++ * @param snap_points Array of snapping points, the best one will be chosen.
++ * @param num_points  Length of the array.
++ * @param[out] ret    Coordinates of the polyline (if found).
++ * @return The chosen snapping point or NULL if no matching line was found.
++ */
 +static LineSnapPoint *FindBestPolyline(const Point &pt, LineSnapPoint *snap_points, uint num_points, Polyline *ret)
 +{
 +	/* Find the best polyline (a pair of two lines - the white one and the blue
@@ -1120,7 +1213,7 @@ diff -r 4a794893a358 src/viewport.cpp
  /** while dragging */
  static void CalcRaildirsDrawstyle(int x, int y, int method)
  {
-@@ -3224,32 +3528,83 @@
+@@ -2902,32 +3217,93 @@
  		}
  	}
  
@@ -1155,30 +1248,40 @@ diff -r 4a794893a358 src/viewport.cpp
 +	ShowLengthMeasurement(b, TileVirtXY(_thd.selstart.x, _thd.selstart.y), TileVirtXY(_thd.selend.x, _thd.selend.y));
 +}
 +
++/**
++ * Calculate how tiles should be highlighted (polyline mode).
++ * @param pt       Current mouse cursor position expressed in inner-tile world "units".
++ * @param dragging Whether currently drag-dropping, in this case direction of rail track line is locked.
++ * @return New highlight style.
++ */
 +static HighLightStyle CalcPolyrailDrawstyle(Point pt, bool dragging)
 +{
-+	RailSnapMode snap_mode = GetRailSnapMode();
-+
-+	/* are we only within one tile? */
-+	if (snap_mode == RSM_SNAP_TO_TILE && GetRailSnapTile() == TileVirtXY(pt.x, pt.y)) {
-+		_thd.selend.x = pt.x;
-+		_thd.selend.y = pt.y;
-+		return GetAutorailHT(pt.x, pt.y);
++	TileIndex snap_tile = INVALID_TILE;
++	if (dragging && !RailSnapping()) {
++		/* If we have no other snapping points then snap to the tile where dragging started. */
++		snap_tile = TileVirtXY(_thd.selstart.x, _thd.selstart.y);
++		/* Is drag-dropping within single tile? */
++		if (snap_tile == TileVirtXY(pt.x, pt.y)) {
++			_thd.selend.x = pt.x;
++			_thd.selend.y = pt.y;
++			return GetAutorailHT(pt.x, pt.y);
++		}
 +	}
 +
 +	/* find the best track */
 +	Polyline line;
 +
-+	bool lock_snapping = dragging && snap_mode == RSM_SNAP_TO_RAIL;
++	bool lock_snapping = dragging && RailSnapping();
 +	if (!lock_snapping) _current_snap_lock.x = -1;
 +
 +	const LineSnapPoint *snap_point;
 +	if (_current_snap_lock.x != -1) {
 +		snap_point = FindBestPolyline(pt, &_current_snap_lock, 1, &line);
-+	} else if (snap_mode == RSM_SNAP_TO_TILE) {
-+		snap_point = FindBestPolyline(pt, _tile_snap_points.Begin(), _tile_snap_points.Length(), &line);
++	} else if (snap_tile != INVALID_TILE) {
++		LineSnapPoint snap_points_from_tile[DIAGDIR_END];
++		GetRailSnapPointsFromTile(snap_tile, snap_points_from_tile);
++		snap_point = FindBestPolyline(pt, snap_points_from_tile, lengthof(snap_points_from_tile), &line);
 +	} else {
-+		assert(snap_mode == RSM_SNAP_TO_RAIL);
 +		snap_point = FindBestPolyline(pt, _rail_snap_points.Begin(), _rail_snap_points.Length(), &line);
 +	}
 +
@@ -1227,11 +1330,11 @@ diff -r 4a794893a358 src/viewport.cpp
  }
  
  /**
-@@ -3269,6 +3624,12 @@
+@@ -2947,6 +3323,12 @@
  		return;
  	}
  
-+	if ((_thd.place_mode & HT_POLY) && GetRailSnapMode() != RSM_NO_SNAP) {
++	if (_thd.place_mode & HT_POLY) {
 +		Point pt = { x, y };
 +		_thd.next_drawstyle = CalcPolyrailDrawstyle(pt, true);
 +		return;
@@ -1240,7 +1343,7 @@ diff -r 4a794893a358 src/viewport.cpp
  	/* Special handling of drag in any (8-way) direction */
  	if (method & (VPM_RAILDIRS | VPM_SIGNALDIRS)) {
  		_thd.selend.x = x;
-@@ -3321,27 +3682,12 @@
+@@ -2999,27 +3381,12 @@
  				x = sx + Clamp(x - sx, -limit, limit);
  				y = sy + Clamp(y - sy, -limit, limit);
  			}
@@ -1274,7 +1377,7 @@ diff -r 4a794893a358 src/viewport.cpp
  			break;
  
  		case VPM_X_AND_Y_LIMITED: // Drag an X by Y constrained rect area.
-@@ -3420,6 +3766,7 @@
+@@ -3098,6 +3465,7 @@
  
  	_thd.selend.x = x;
  	_thd.selend.y = y;
@@ -1282,7 +1385,7 @@ diff -r 4a794893a358 src/viewport.cpp
  }
  
  /**
-@@ -3437,11 +3784,10 @@
+@@ -3115,11 +3483,10 @@
  		return ES_HANDLED;
  	}
  
@@ -1298,7 +1401,7 @@ diff -r 4a794893a358 src/viewport.cpp
  
  	/* mouse button released..
  	 * keep the selected tool, but reset it to the original mode. */
-@@ -3452,14 +3798,18 @@
+@@ -3130,14 +3497,15 @@
  	} else if (_thd.select_method & VPM_SIGNALDIRS) {
  		_thd.place_mode = HT_RECT | others;
  	} else if (_thd.select_method & VPM_RAILDIRS) {
@@ -1309,45 +1412,78 @@ diff -r 4a794893a358 src/viewport.cpp
  	}
  	SetTileSelectSize(1, 1);
  
-+	if (_thd.place_mode & HT_POLY) {
-+		if (GetRailSnapMode() == RSM_SNAP_TO_TILE) SetRailSnapMode(RSM_NO_SNAP);
-+		if (_thd.drawstyle == HT_NONE) return ES_HANDLED;
-+	}
-+
- 	w->OnPlaceMouseUp(_thd.select_method, _thd.select_proc, _thd.selend, TileVirtXY(_thd.selstart.x, _thd.selstart.y), TileVirtXY(_thd.selend.x, _thd.selend.y));
+-	w->OnPlaceMouseUp(_thd.select_method, _thd.select_proc, _thd.selend, TileVirtXY(_thd.selstart.x, _thd.selstart.y), TileVirtXY(_thd.selend.x, _thd.selend.y));
 -
++	if (_thd.drawstyle != HT_NONE) { // in some cases (when snapping) the track may be completly blank (nothing selected)
++		w->OnPlaceMouseUp(_thd.select_method, _thd.select_proc, _thd.selend, TileVirtXY(_thd.selstart.x, _thd.selstart.y), TileVirtXY(_thd.selend.x, _thd.selend.y));
++	}
  	return ES_HANDLED;
  }
  
-@@ -3506,6 +3856,10 @@
- 		VpStartPreSizing();
- 	}
- 
-+	if (mode & HT_POLY) {
-+		SetRailSnapMode((mode & HT_NEW_POLY) == HT_NEW_POLY ? RSM_NO_SNAP : RSM_SNAP_TO_RAIL);
-+	}
-+
- 	if ((icon & ANIMCURSOR_FLAG) != 0) {
- 		SetAnimatedMouseCursor(_animcursors[icon & ~ANIMCURSOR_FLAG]);
- 	} else {
-@@ -3556,3 +3910,116 @@
+@@ -3250,3 +3618,178 @@
  	}
  	assert(_vp_sprite_sorter != NULL);
  }
 +
-+static LineSnapPoint LineSnapPointAtRailTrackEndpoint(TileIndex tile, DiagDirection exit_dir, bool bidirectional)
++/**
++ * Construct a rail snapping point based on a spot where a rail tracks segment
++ * has been placed.
++ *
++ * The snapping point will allow to stick new segment of tracks to the line that
++ * was placed before.
++ *
++ * @param tile Tile where the placed segment ended.
++ * @param exit_dir Tile side at which the segment ended.
++ * @param bidirectional Whether to allow to reverse at this point
++ *        (e.g. reversing after a bridges/tunnels is undesired).
++ * @param extended If not \c NULL, the snapping point will be extended over
++ *        a bridge/tunnel/station etc. if the last placed segment touches such
++ *        an object. Additional snapping point may be stored under \a extended
++ *        if needed, otherwise it will be set to { -1, -1, 0 }.
++ * @return New rail snapping point.
++ */
++static LineSnapPoint LineSnapPointAtRailTrackEndpoint(TileIndex tile, DiagDirection exit_dir, bool bidirectional, LineSnapPoint *extended)
 +{
 +	LineSnapPoint ret;
 +	ret.x = (TILE_SIZE / 2) * (uint)(2 * TileX(tile) + TileIndexDiffCByDiagDir(exit_dir).x + 1);
 +	ret.y = (TILE_SIZE / 2) * (uint)(2 * TileY(tile) + TileIndexDiffCByDiagDir(exit_dir).y + 1);
-+
 +	ret.dirs = 0;
-+	SetBit(ret.dirs, DiagDirToDir(exit_dir));
-+	SetBit(ret.dirs, ChangeDir(DiagDirToDir(exit_dir), DIRDIFF_45LEFT));
-+	SetBit(ret.dirs, ChangeDir(DiagDirToDir(exit_dir), DIRDIFF_45RIGHT));
-+	if (bidirectional) ret.dirs |= ROR<uint8>(ret.dirs, DIRDIFF_REVERSE);
++	if (extended != NULL) {
++		extended->x = -1;
++		extended->y = -1;
++		extended->dirs = 0;
++	}
 +
++	/* Check whether to extend the snap point over a tunnel/bridge/station etc. */
++	tile = TileAddByDiagDir(tile, exit_dir);
++	if (extended != NULL && !IsTileType(tile, MP_RAILWAY) && !IsTileType(tile, MP_ROAD) &&
++			TrackStatusToTrackBits(GetTileTrackStatus(tile, TRANSPORT_RAIL, INVALID_DIAGDIR)) == AxisToTrackBits(DiagDirToAxis(exit_dir)) &&
++			IsTileOwner(tile, _local_company)) { // safe to call because the tile has a track so it has an owner too
++		/* Check if this is a bridge and move the tile to the other end if so. */
++		if (IsTileType(tile, MP_TUNNELBRIDGE)) tile = GetOtherTunnelBridgeEnd(tile);
++		LineSnapPoint ex = LineSnapPointAtRailTrackEndpoint(tile, exit_dir, false, extended);
++		if (!bidirectional) return ex; // if we are interested in forward direction only then return just the extended point
++		*extended = ex; // otherwise return two points, extended with forward direction and base with reverse direction
++	} else {
++		/* Add forward direction. */
++		SetBit(ret.dirs, DiagDirToDir(exit_dir));
++	}
++
++	/* Add reverse direction. */
++	if (bidirectional) SetBit(ret.dirs, ReverseDir(DiagDirToDir(exit_dir)));
++
++	/* Add 45 degree rotated directions. */
++	ret.dirs |= ROR<uint8>(ret.dirs, DIRDIFF_45LEFT);
++	ret.dirs |= ROR<uint8>(ret.dirs, DIRDIFF_45RIGHT);
 +	return ret;
++}
++
++static void GetRailSnapPointsFromTile(TileIndex tile, LineSnapPoint ret[DIAGDIR_END])
++{
++	for (DiagDirection dir = DIAGDIR_BEGIN; dir < DIAGDIR_END; dir++) {
++		ret[dir] = LineSnapPointAtRailTrackEndpoint(tile, dir, false, NULL);
++		ret[dir].dirs = ROR<uint8>(ret[dir].dirs, DIRDIFF_REVERSE);
++	}
 +}
 +
 +/**
@@ -1377,8 +1513,9 @@ diff -r 4a794893a358 src/viewport.cpp
 +			if (distance % 2 != 0) exit_trackdir_at_end = NextTrackdir(exit_trackdir_at_end);
 +		}
 +
-+		LineSnapPoint snap_start = LineSnapPointAtRailTrackEndpoint(start_tile, TrackdirToExitdir(exit_trackdir_at_start), bidirectional_exit);
-+		LineSnapPoint snap_end = LineSnapPointAtRailTrackEndpoint(end_tile, TrackdirToExitdir(exit_trackdir_at_end), bidirectional_exit);
++		LineSnapPoint snap_start, snap_start_ex, snap_end, snap_end_ex;
++		snap_start = LineSnapPointAtRailTrackEndpoint(start_tile, TrackdirToExitdir(exit_trackdir_at_start), bidirectional_exit, &snap_start_ex);
++		snap_end = LineSnapPointAtRailTrackEndpoint(end_tile, TrackdirToExitdir(exit_trackdir_at_end), bidirectional_exit, &snap_end_ex);
 +		/* Find if we already had these coordinates before. */
 +		LineSnapPoint *snap;
 +		bool had_start = false;
@@ -1389,68 +1526,83 @@ diff -r 4a794893a358 src/viewport.cpp
 +		}
 +		/* Create new snap point set. */
 +		if (had_start && had_end) {
-+			/* just stop snaping, don't forget snap points */
-+			SetRailSnapMode(RSM_NO_SNAP);
++			/* just stop snapping, don't forget snap points */
++			SetRailSnapMode(false);
 +		} else {
 +			/* include only new points */
 +			_rail_snap_points.Clear();
-+			if (!had_start) *_rail_snap_points.Append() = snap_start;
-+			if (!had_end) *_rail_snap_points.Append() = snap_end;
-+			SetRailSnapMode(RSM_SNAP_TO_RAIL);
++			if (!had_start) {
++				*_rail_snap_points.Append() = snap_start;
++				if (snap_start_ex.dirs != 0) *_rail_snap_points.Append() = snap_start_ex;
++			}
++			if (!had_end) {
++				*_rail_snap_points.Append() = snap_end;
++				if (snap_end_ex.dirs != 0) *_rail_snap_points.Append() = snap_end_ex;
++			}
++			SetRailSnapMode(true);
 +		}
 +	}
 +}
 +
-+bool CurrentlySnappingRailPlacement()
++/**
++ * Store the position of lastly built rail station; for highlighting purposes.
++ *
++ * In "polyline" highlighting mode, the stored end points will be used as snapping points for new tracks.
++ *
++ * @param ta           Station area.
++ * @param station_axis Station axis.
++ */
++void StoreRailStationPlacementEndpoints(const TileArea &ta, Axis station_axis)
 +{
-+	return (_thd.place_mode & HT_POLY) && GetRailSnapMode() == RSM_SNAP_TO_RAIL;
-+}
++	uint start_x = TileX(ta.tile);
++	uint start_y = TileY(ta.tile);
++	uint end_x = start_x + ta.w - 1;
++	uint end_y = start_y + ta.h - 1;
 +
-+static RailSnapMode GetRailSnapMode()
-+{
-+	if (_rail_snap_mode == RSM_SNAP_TO_TILE && _tile_snap_points.Length() == 0) return RSM_NO_SNAP;
-+	if (_rail_snap_mode == RSM_SNAP_TO_RAIL && _rail_snap_points.Length() == 0) return RSM_NO_SNAP;
-+	return _rail_snap_mode;
-+}
-+
-+static void SetRailSnapMode(RailSnapMode mode)
-+{
-+	_rail_snap_mode = mode;
-+
-+	if ((_thd.place_mode & HT_POLY) && (GetRailSnapMode() == RSM_NO_SNAP)) {
-+		SetTileSelectSize(1, 1);
++	_rail_snap_points.Clear();
++	if (station_axis == AXIS_X) {
++		for (uint y = start_y; y <= end_y; y++) {
++			*_rail_snap_points.Append() = LineSnapPointAtRailTrackEndpoint(TileXY(start_x, y), DIAGDIR_NE, false, NULL);
++			*_rail_snap_points.Append() = LineSnapPointAtRailTrackEndpoint(TileXY(end_x, y), DIAGDIR_SW, false, NULL);
++		}
++	} else {
++		for (uint x = start_x; x <= end_x; x++) {
++			*_rail_snap_points.Append() = LineSnapPointAtRailTrackEndpoint(TileXY(x, start_y), DIAGDIR_NW, false, NULL);
++			*_rail_snap_points.Append() = LineSnapPointAtRailTrackEndpoint(TileXY(x, end_y), DIAGDIR_SE, false, NULL);
++		}
 +	}
 +}
 +
-+static TileIndex GetRailSnapTile()
++/**
++ * Check rail snapping status.
++ * @return \c true iff snapping is on and there are snap points available.
++ */
++bool RailSnapping()
 +{
-+	if (_tile_snap_points.Length() == 0) return INVALID_TILE;
-+	return TileVirtXY(_tile_snap_points[DIAGDIR_NE].x, _tile_snap_points[DIAGDIR_NE].y);
++	return _rail_snapping && _rail_snap_points.Length() > 0;
 +}
 +
-+static void SetRailSnapTile(TileIndex tile)
++/**
++ * Set rail snap mode.
++ * @param snapping Whether to enable snapping.
++ */
++void SetRailSnapMode(bool snapping)
 +{
-+	_tile_snap_points.Clear();
-+	if (tile == INVALID_TILE) return;
-+
-+	for (DiagDirection dir = DIAGDIR_BEGIN; dir < DIAGDIR_END; dir++) {
-+		LineSnapPoint *point = _tile_snap_points.Append();
-+		*point = LineSnapPointAtRailTrackEndpoint(tile, dir, false);
-+		point->dirs = ROR<uint8>(point->dirs, DIRDIFF_REVERSE);
-+	}
++	_rail_snapping = snapping;
++	if (!RailSnapping()) SetTileSelectSize(1, 1); // in case no longer snapping
 +}
 +
-+void ResetRailPlacementSnapping()
++/** Clear all stored rail snap points and disable rail snapping. */
++void ResetRailSnapping()
 +{
-+	_rail_snap_mode = RSM_NO_SNAP;
-+	_tile_snap_points.Clear();
++	_rail_snapping = false;
 +	_rail_snap_points.Clear();
 +	_current_snap_lock.x = -1;
 +}
-diff -r 4a794893a358 src/viewport_func.h
---- a/src/viewport_func.h	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/viewport_func.h	Thu Feb 26 08:47:46 2015 +0100
-@@ -58,7 +58,7 @@
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/viewport_func.h
+--- a/src/viewport_func.h	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/viewport_func.h	Wed Apr 26 20:14:25 2017 +0200
+@@ -59,7 +59,7 @@
  void StartSpriteCombine();
  void EndSpriteCombine();
  
@@ -1459,9 +1611,9 @@ diff -r 4a794893a358 src/viewport_func.h
  void SetRedErrorSquare(TileIndex tile);
  void SetTileSelectSize(int w, int h);
  void SetTileSelectBigSize(int ox, int oy, int sx, int sy);
-diff -r 4a794893a358 src/widgets/rail_widget.h
---- a/src/widgets/rail_widget.h	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/widgets/rail_widget.h	Thu Feb 26 08:47:46 2015 +0100
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/widgets/rail_widget.h
+--- a/src/widgets/rail_widget.h	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/widgets/rail_widget.h	Wed Apr 26 20:14:25 2017 +0200
 @@ -21,6 +21,7 @@
  	WID_RAT_BUILD_EW,       ///< Build rail along the game view X axis.
  	WID_RAT_BUILD_Y,        ///< Build rail along the game grid Y axis.
@@ -1470,15 +1622,15 @@ diff -r 4a794893a358 src/widgets/rail_widget.h
  	WID_RAT_DEMOLISH,       ///< Destroy something with dynamite!
  	WID_RAT_BUILD_DEPOT,    ///< Build a depot.
  	WID_RAT_BUILD_WAYPOINT, ///< Build a waypoint.
-diff -r 4a794893a358 src/window.cpp
---- a/src/window.cpp	Wed Dec 24 19:31:26 2014 +0000
-+++ b/src/window.cpp	Thu Feb 26 08:47:46 2015 +0100
-@@ -2796,7 +2796,7 @@
+diff -r 289f995f4de2 -r 4c8fb72ea133 src/window.cpp
+--- a/src/window.cpp	Sun Jan 08 11:45:08 2017 +0000
++++ b/src/window.cpp	Wed Apr 26 20:14:25 2017 +0200
+@@ -2870,7 +2870,7 @@
+ 		switch (click) {
  			case MC_DOUBLE_LEFT:
  			case MC_LEFT:
- 				DEBUG(misc, 2, "Cursor: 0x%X (%d)", _cursor.sprite, _cursor.sprite);
--				if (!HandleViewportClicked(vp, x, y) &&
-+				if (!HandleViewportClicked(vp, x, y, click == MC_DOUBLE_LEFT) &&
- 						!(w->flags & WF_DISABLE_VP_SCROLL) &&
+-				if (HandleViewportClicked(vp, x, y)) return;
++				if (HandleViewportClicked(vp, x, y, click == MC_DOUBLE_LEFT)) return;
+ 				if (!(w->flags & WF_DISABLE_VP_SCROLL) &&
  						_settings_client.gui.left_mouse_btn_scrolling) {
  					_scrolling_viewport = true;
