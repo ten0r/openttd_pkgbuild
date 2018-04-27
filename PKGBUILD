@@ -1,6 +1,6 @@
 pkgname=openttd
 pkgver=1.8.0
-pkgrel=2
+pkgrel=3
 pkgdesc='An engine for running Transport Tycoon Deluxe.'
 arch=('i686' 'x86_64')
 url='http://www.openttd.org'
@@ -38,7 +38,8 @@ build() {
     --data-dir=share/${pkgname} \
     --install-dir=${pkgdir} \
     --doc-dir=share/doc/${pkgname} \
-    --menu-name="OpenTTD"
+    --menu-name="OpenTTD" \
+    --personal-dir=.config/${pkgname}
 
   make
 }
