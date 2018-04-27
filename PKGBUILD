@@ -6,7 +6,6 @@ arch=('i686' 'x86_64')
 url='http://www.openttd.org'
 license=('GPL')
 depends=('libpng' 'sdl' 'icu' 'fontconfig' 'lzo' 'hicolor-icon-theme' 'desktop-file-utils' 'xz')
-install=openttd.install
 optdepends=('openttd-opengfx: free graphics' 
             'openttd-opensfx: free soundset')
 source=("http://binaries.openttd.org/releases/${pkgver}/${pkgname}-${pkgver}-source.tar.xz"
@@ -21,7 +20,7 @@ build() {
 	for _f in "${source[@]}"; do
 		[[ "$_f" =~ \.diff$ ]] && {
 			msg2 "Applying patch $_f"
-			patch -p1 -N --dry-run -i "$srcdir/$_f" 2>/dev/null
+			patch -p1 -N --dry-run --silent -i "$srcdir/$_f" 2>/dev/null
 			if [ $? -eq 0 ];
 			then
 				patch -p1 --silent -i "$srcdir/$_f"
