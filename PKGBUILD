@@ -1,6 +1,6 @@
 pkgname=openttd
 pkgver=1.8.0
-pkgrel=1
+pkgrel=2
 pkgdesc='An engine for running Transport Tycoon Deluxe.'
 arch=('i686' 'x86_64')
 url='http://www.openttd.org'
